@@ -82,13 +82,89 @@ class Path {
   }
 }
 
+class Display {
+  constructor(w, h) {
+    this.textCells = [];
+    for (let y = 0; y < h; y++) {
+      this.textCells[y] = [];
+      for (let x = 0; x < w; x++) {
+        this.textCells[y][x] = new TextCell();
+      }
+    }
+
+    this.cursor = ansi(process.stdout);
+
+    this.codeTable = [[], [], [], []];
+    this.codeTable[0][0] = 2 ** 0;
+    this.codeTable[1][0] = 2 ** 1;
+    this.codeTable[2][0] = 2 ** 2;
+    this.codeTable[0][1] = 2 ** 3;
+    this.codeTable[1][1] = 2 ** 4;
+    this.codeTable[2][1] = 2 ** 5;
+    this.codeTable[3][0] = 2 ** 6;
+    this.codeTable[3][1] = 2 ** 7;
+
+    this.bitMap = new Map();
+  }
+
+  setPixel(x, y) {
+    const cx = Math.floor(x / 2);
+    const cy = Math.floor(y / 4);
+    const px = x < 0 ? (x % 2) + 2 : x % 2;
+    const py = y < 0 ? (y % 4) + 4 : y % 4;
+    const code = this.bitMap.get(`${cx}, ${cy}`) ?? 0;
+    this.bitMap.set(`${cx}, ${cy}`, code | this.codeTable[py][px]);
+  }
+
+  updatePixels() {
+    this.bitMap.forEach((code, pos) => {
+      const [cx, cy] = pos.split(',').map((e) => parseInt(e));
+      const target = this.textCells[cy]?.[cx];
+      if (target === undefined) return;
+      target.setPixelsFromCode(code);
+    });
+    this.bitMap = new Map();
+  }
+
+  setCharacter (str, x, y) {
+    const line = this.textCells[Math.floor(y / 4)];
+    for (let i = 0; i < str.length; i++) {
+      const target = line?.[Math.floor(x / 2) + i];
+      if (target === undefined) return;
+      target.setCharacter(str[i]);
+    }
+  }
+
+  clear() {
+    this.textCells.forEach((line) => line.forEach((cell) => cell.clear()));
+  }
+
+  updateDisplay() {
+    this.textCells.forEach((line, y) => {
+      for (let xStart = 0; xStart < line.length; xStart++) {
+        if (!line[xStart].isChanged) continue;
+        let xEnd = xStart;
+        do {
+          line[xEnd].update();
+          xEnd++;
+        } while ((line[xEnd] ?? { isChanged: false }).isChanged);
+        this.cursor.goto(xStart + 1, y + 1).write(
+          line
+            .slice(xStart, xEnd)
+            .map(({ beforeCharacter }) => beforeCharacter)
+            .join('')
+        );
+      }
+    });
+    this.cursor.goto(this.cw, this.ch);
+  }
+}
+
 export default class TCanvas {
   constructor(
     pixelLines = process.stdout.rows * 4,
     pixelColumns = process.stdout.columns * 2
   ) {
-    this.cursor = ansi(process.stdout);
-    this.textCells = [];
     const [ch, cw] = [pixelLines / 4, pixelColumns / 2].map((e) =>
       Math.floor(e)
     );
@@ -96,12 +172,7 @@ export default class TCanvas {
     this.w = pixelColumns;
     this.ch = ch;
     this.cw = cw;
-    for (let y = 0; y < ch; y++) {
-      this.textCells[y] = [];
-      for (let x = 0; x < cw; x++) {
-        this.textCells[y][x] = new TextCell();
-      }
-    }
+    this.display = new Display(cw, ch);
     this.paths = [];
   }
 
@@ -114,85 +185,26 @@ export default class TCanvas {
   }
 
   fillRect(x, y, w, h) {
-    const codeTable = [[], [], [], []];
-    codeTable[0][0] = 2 ** 0;
-    codeTable[1][0] = 2 ** 1;
-    codeTable[2][0] = 2 ** 2;
-    codeTable[0][1] = 2 ** 3;
-    codeTable[1][1] = 2 ** 4;
-    codeTable[2][1] = 2 ** 5;
-    codeTable[3][0] = 2 ** 6;
-    codeTable[3][1] = 2 ** 7;
-
-    const bitMap = new Map();
-
     for (let xi = 0; xi < w; xi++) {
       for (let yi = 0; yi < h; yi++) {
-        const [xp, yp] = [xi + x, yi + y];
-
-        const cx = Math.floor(xp / 2);
-        const cy = Math.floor(yp / 4);
-        const px = xp < 0 ? (xp % 2) + 2 : xp % 2;
-        const py = yp < 0 ? (yp % 4) + 4 : yp % 4;
-
-        const code = bitMap.get(`${cx}, ${cy}`) ?? 0;
-        bitMap.set(`${cx}, ${cy}`, code | codeTable[py][px]);
+        this.display.setPixel(x + xi, y + yi);
       }
     }
-
-    bitMap.forEach((code, pos) => {
-      const [cx, cy] = pos.split(',').map((e) => parseInt(e));
-      const target = this.textCells[cy]?.[cx];
-      if (target === undefined) return;
-      target.setPixelsFromCode(code);
-    });
+    this.display.updatePixels();
   }
 
   strokeRect(x, y, w, h) {
-    const codeTable = [[], [], [], []];
-    codeTable[0][0] = 2 ** 0;
-    codeTable[1][0] = 2 ** 1;
-    codeTable[2][0] = 2 ** 2;
-    codeTable[0][1] = 2 ** 3;
-    codeTable[1][1] = 2 ** 4;
-    codeTable[2][1] = 2 ** 5;
-    codeTable[3][0] = 2 ** 6;
-    codeTable[3][1] = 2 ** 7;
-
-    const bitMap = new Map();
-
     for (let xi = 0; xi < w; xi++) {
       const xp = xi + x;
-      [y, y + h - 1].map((yp) => {
-        const cx = Math.floor(xp / 2);
-        const cy = Math.floor(yp / 4);
-        const px = xp < 0 ? (xp % 2) + 2 : xp % 2;
-        const py = yp < 0 ? (yp % 4) + 4 : yp % 4;
-
-        const code = bitMap.get(`${cx}, ${cy}`) ?? 0;
-        bitMap.set(`${cx}, ${cy}`, code | codeTable[py][px]);
-      });
+      [y, y + h - 1].map((yp) => this.display.setPixel(xp, yp));
     }
 
     for (let yi = 0; yi < h; yi++) {
       const yp = yi + x;
-      [x, x + w - 1].map((xp) => {
-        const cx = Math.floor(xp / 2);
-        const cy = Math.floor(yp / 4);
-        const px = xp < 0 ? (xp % 2) + 2 : xp % 2;
-        const py = yp < 0 ? (yp % 4) + 4 : yp % 4;
-
-        const code = bitMap.get(`${cx}, ${cy}`) ?? 0;
-        bitMap.set(`${cx}, ${cy}`, code | codeTable[py][px]);
-      });
+      [x, x + w - 1].map((xp) => this.display.setPixel(xp, yp));
     }
 
-    bitMap.forEach((code, pos) => {
-      const [cx, cy] = pos.split(',').map((e) => parseInt(e));
-      const target = this.textCells[cy]?.[cx];
-      if (target === undefined) return;
-      target.setPixelsFromCode(code);
-    });
+    this.display.updatePixels();
   }
 
   arc(x, y, radius, startAngle, endAngle, anticlockwise = false) {
@@ -201,6 +213,7 @@ export default class TCanvas {
       return;
     }
 
+    // 正規化
     [startAngle, endAngle] = [startAngle, endAngle]
       .map((angle) => angle % (Math.PI * 2))
       .map((angle) => (angle < 0 ? angle + Math.PI * 2 : angle));
@@ -209,6 +222,7 @@ export default class TCanvas {
       x + Math.cos(startAngle) * radius,
       y + Math.sin(startAngle) * radius
     );
+
     const dTheta = (Math.PI * 2) / Math.abs(radius);
     if (anticlockwise) {
       if (startAngle <= endAngle) {
@@ -232,66 +246,28 @@ export default class TCanvas {
   }
 
   stroke() {
-    const codeTable = [[], [], [], []];
-    codeTable[0][0] = 2 ** 0;
-    codeTable[1][0] = 2 ** 1;
-    codeTable[2][0] = 2 ** 2;
-    codeTable[0][1] = 2 ** 3;
-    codeTable[1][1] = 2 ** 4;
-    codeTable[2][1] = 2 ** 5;
-    codeTable[3][0] = 2 ** 6;
-    codeTable[3][1] = 2 ** 7;
-
-    const bitMap = new Map();
     this.paths.forEach((path) =>
       path.getLines().forEach((line) => {
         line.getPoints().forEach((point) => {
-          const cx = Math.floor(point[0] / 2);
-          const cy = Math.floor(point[1] / 4);
-          const px = point[0] % 2 < 0 ? (point[0] % 2) + 2 : point[0] % 2;
-          const py = point[1] % 4 < 0 ? (point[1] % 4) + 4 : point[1] % 4;
-          const code = bitMap.get(`${cx}, ${cy}`) ?? 0;
-          bitMap.set(`${cx}, ${cy}`, code | codeTable[py][px]);
+          this.display.setPixel(point[0], point[1]);
         });
       })
     );
-    bitMap.forEach((code, pos) => {
-      const [cx, cy] = pos.split(',').map((e) => parseInt(e));
-      const target = this.textCells[cy]?.[cx];
-      if (target === undefined) return;
-      target.setPixelsFromCode(code);
-    });
+    this.display.updatePixels();
     this.paths = [];
   }
 
   fill() {
-    const codeTable = [[], [], [], []];
-    codeTable[0][0] = 2 ** 0;
-    codeTable[1][0] = 2 ** 1;
-    codeTable[2][0] = 2 ** 2;
-    codeTable[0][1] = 2 ** 3;
-    codeTable[1][1] = 2 ** 4;
-    codeTable[2][1] = 2 ** 5;
-    codeTable[3][0] = 2 ** 6;
-    codeTable[3][1] = 2 ** 7;
-
-    const bitMap = new Map();
-
     this.paths.forEach((path) => {
       path.close();
       const lines = path.getLines();
       const xPoint = lines.map(({ from }) => from[0]);
       const yPoint = lines.map(({ from }) => from[1]);
 
-      // //輪郭も塗ってあげる
+      // 輪郭も塗ってあげる
       lines.map((line) =>
         line.getPoints().forEach((point) => {
-          const cx = Math.floor(point[0] / 2);
-          const cy = Math.floor(point[1] / 4);
-          const px = point[0] < 0 ? (point[0] % 2) + 2 : point[0] % 2;
-          const py = point[1] < 0 ? (point[1] % 4) + 4 : point[1] % 4;
-          const code = bitMap.get(`${cx}, ${cy}`) ?? 0;
-          bitMap.set(`${cx}, ${cy}`, code | codeTable[py][px]);
+          this.display.setPixel(point[0], point[1]);
         })
       );
 
@@ -320,56 +296,25 @@ export default class TCanvas {
             }
           });
           if (count !== 0) {
-            const cx = Math.floor(x / 2);
-            const cy = Math.floor(y / 4);
-            const px = x < 0 ? (x % 2) + 2 : x % 2;
-            const py = y < 0 ? (y % 4) + 4 : y % 4;
-            const code = bitMap.get(`${cx}, ${cy}`) ?? 0;
-            bitMap.set(`${cx}, ${cy}`, code | codeTable[py][px]);
+            this.display.setPixel(x, y);
           }
         }
       }
 
-      bitMap.forEach((code, pos) => {
-        const [cx, cy] = pos.split(',').map((e) => parseInt(e));
-        const target = this.textCells[cy]?.[cx];
-        if (target === undefined) return;
-        target.setPixelsFromCode(code);
-      });
+      this.display.updatePixels();
     });
     this.paths = [];
   }
 
   clear() {
-    this.textCells.forEach((line) => line.forEach((cell) => cell.clear()));
+    this.display.clear();
   }
 
   printString(str, x, y) {
-    const line = this.textCells[Math.floor(y / 4)];
-    for (let i = 0; i < str.length; i++) {
-      const target = line?.[Math.floor(x / 2) + i];
-      if (target === undefined) return;
-      target.setCharacter(str[i]);
-    }
+    this.display.setCharacter(str, x, y);
   }
 
   update() {
-    this.textCells.forEach((line, y) => {
-      for (let xStart = 0; xStart < line.length; xStart++) {
-        if (!line[xStart].isChanged) continue;
-        let xEnd = xStart;
-        do {
-          line[xEnd].update();
-          xEnd++;
-        } while ((line[xEnd] ?? { isChanged: false }).isChanged);
-        this.cursor.goto(xStart + 1, y + 1).write(
-          line
-            .slice(xStart, xEnd)
-            .map(({ beforeCharacter }) => beforeCharacter)
-            .join('')
-        );
-      }
-    });
-    this.cursor.goto(this.cw, this.ch);
+    this.display.updateDisplay();
   }
 }
