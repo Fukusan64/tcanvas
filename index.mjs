@@ -28,48 +28,67 @@ class TextCell {
   }
 }
 
+class Point {
+  constructor(x, y) {
+    Object.assign(this, { x, y });
+  }
+
+  conversion(func) {
+    return new Point(...func([...this]));
+  }
+
+  equals(other) {
+    return this.x === other.x && this.y === other.y;
+  }
+
+  * [Symbol.iterator]() {
+    yield this.x;
+    yield this.y;
+  }
+}
+
 class Line {
-  constructor(from = [0, 0], to = [0, 0]) {
+  constructor(from = new Point(0, 0), to = new Point(0, 0)) {
     Object.assign(this, { from, to });
   }
 
   getPoints() {
     const result = [];
     const t = Math.sqrt(
-      (this.from[0] - this.to[0]) ** 2 + (this.from[1] - this.to[1]) ** 2
+      (this.from.x - this.to.x) ** 2 + (this.from.y - this.to.y) ** 2
     );
     if (t === 0) return result;
     let [x, y] = this.from;
-    const [dx, dy] = [this.to[0] - this.from[0], this.to[1] - this.from[1]].map(
+    const [dx, dy] = [this.to.x - this.from.x, this.to.y - this.from.y].map(
       (d) => d / t
     );
     for (let dt = 0; dt <= t; dt++) {
-      result.push([x + dx * dt, y + dy * dt].map((p) => Math.round(p)));
+      result.push(
+        (new Point(x + dx * dt, y + dy * dt)).conversion(
+          p => p.map((p) => Math.round(p))
+        )
+      );
     }
     return result;
   }
 }
 
 class Path {
-  constructor(x, y) {
-    this.points = [[x, y].map((p) => Math.round(p))];
+  constructor(point) {
+    this.points = [point.conversion(p => p.map((p) => Math.round(p)))];
   }
 
-  addPoint(x, y) {
-    this.points.push([x, y].map((p) => Math.round(p)));
+  addPoint(point) {
+    this.points.push(point.conversion(p => p.map((p) => Math.round(p))));
   }
 
   isClosed() {
-    return (
-      this.points[0][0] === this.points[this.points.length - 1][0] &&
-      this.points[0][1] === this.points[this.points.length - 1][1]
-    );
+    return this.points[0].equals(this.points[this.points.length - 1]);
   }
 
   close() {
     if (this.isClosed()) return;
-    const [x, y] = this.points[0];
-    this.points.push([x, y]);
+    this.points.push(new Point(...this.points[0]));
   }
 
   getLines() {
@@ -105,13 +124,16 @@ class Display {
     this.codeTable[3][1] = 2 ** 7;
 
     this.bitMap = new Map();
+
+    this.w = w;
+    this.h = h;
   }
 
-  setPixel(x, y) {
-    const cx = Math.floor(x / 2);
-    const cy = Math.floor(y / 4);
-    const px = x < 0 ? (x % 2) + 2 : x % 2;
-    const py = y < 0 ? (y % 4) + 4 : y % 4;
+  setPixel(point) {
+    const cx = Math.floor(point.x / 2);
+    const cy = Math.floor(point.y / 4);
+    const px = point.x < 0 ? (point.x % 2) + 2 : point.x % 2;
+    const py = point.y < 0 ? (point.y % 4) + 4 : point.y % 4;
     const code = this.bitMap.get(`${cx}, ${cy}`) ?? 0;
     this.bitMap.set(`${cx}, ${cy}`, code | this.codeTable[py][px]);
   }
@@ -126,10 +148,10 @@ class Display {
     this.bitMap = new Map();
   }
 
-  setCharacter (str, x, y) {
-    const line = this.textCells[Math.floor(y / 4)];
+  setCharacter (str, point) {
+    const line = this.textCells[Math.floor(point.y / 4)];
     for (let i = 0; i < str.length; i++) {
-      const target = line?.[Math.floor(x / 2) + i];
+      const target = line?.[Math.floor(point.x / 2) + i];
       if (target === undefined) return;
       target.setCharacter(str[i]);
     }
@@ -156,7 +178,7 @@ class Display {
         );
       }
     });
-    this.cursor.goto(this.cw, this.ch);
+    this.cursor.goto(this.w, this.h);
   }
 }
 
@@ -177,17 +199,17 @@ export default class TCanvas {
   }
 
   moveTo(x, y) {
-    this.paths.push(new Path(x, y));
+    this.paths.push(new Path(new Point(x, y)));
   }
 
   lineTo(x, y) {
-    this.paths[this.paths.length - 1].addPoint(x, y);
+    this.paths[this.paths.length - 1].addPoint(new Point(x, y));
   }
 
   fillRect(x, y, w, h) {
     for (let xi = 0; xi < w; xi++) {
       for (let yi = 0; yi < h; yi++) {
-        this.display.setPixel(x + xi, y + yi);
+        this.display.setPixel(new Point(x + xi, y + yi));
       }
     }
     this.display.updatePixels();
@@ -196,12 +218,14 @@ export default class TCanvas {
   strokeRect(x, y, w, h) {
     for (let xi = 0; xi < w; xi++) {
       const xp = xi + x;
-      [y, y + h - 1].map((yp) => this.display.setPixel(xp, yp));
+      this.display.setPixel(new Point(xp, y));
+      this.display.setPixel(new Point(xp, y + h - 1));
     }
 
     for (let yi = 0; yi < h; yi++) {
       const yp = yi + x;
-      [x, x + w - 1].map((xp) => this.display.setPixel(xp, yp));
+      this.display.setPixel(new Point(x, yp));
+      this.display.setPixel(new Point(x + w - 1, yp));
     }
 
     this.display.updatePixels();
@@ -241,7 +265,7 @@ export default class TCanvas {
     }
   }
 
-  close() {
+  closePath() {
     this.paths[this.paths.length - 1].close();
   }
 
@@ -249,7 +273,7 @@ export default class TCanvas {
     this.paths.forEach((path) =>
       path.getLines().forEach((line) => {
         line.getPoints().forEach((point) => {
-          this.display.setPixel(point[0], point[1]);
+          this.display.setPixel(point);
         });
       })
     );
@@ -261,13 +285,13 @@ export default class TCanvas {
     this.paths.forEach((path) => {
       path.close();
       const lines = path.getLines();
-      const xPoint = lines.map(({ from }) => from[0]);
-      const yPoint = lines.map(({ from }) => from[1]);
+      const xPoint = lines.map(({ from }) => from.x);
+      const yPoint = lines.map(({ from }) => from.y);
 
       // 輪郭も塗ってあげる
       lines.map((line) =>
         line.getPoints().forEach((point) => {
-          this.display.setPixel(point[0], point[1]);
+          this.display.setPixel(point);
         })
       );
 
@@ -283,20 +307,20 @@ export default class TCanvas {
         for (let y = minY; y <= maxY; y++) {
           let count = 0;
           lines.map((line) => {
-            if (line.from[1] <= y && line.to[1] > y) {
-              const t = (y - line.from[1]) / (line.to[1] - line.from[1]);
-              if (x < line.from[0] + t * (line.to[0] - line.from[0])) {
+            if (line.from.y <= y && line.to.y > y) {
+              const t = (y - line.from.y) / (line.to.y - line.from.y);
+              if (x < line.from.x + t * (line.to.x - line.from.x)) {
                 count++;
               }
-            } else if (line.from[1] > y && line.to[1] <= y) {
-              const t = (y - line.from[1]) / (line.to[1] - line.from[1]);
-              if (x < line.from[0] + t * (line.to[0] - line.from[0])) {
+            } else if (line.from.y > y && line.to.y <= y) {
+              const t = (y - line.from.y) / (line.to.y - line.from.y);
+              if (x < line.from.x + t * (line.to.x - line.from.x)) {
                 count--;
               }
             }
           });
           if (count !== 0) {
-            this.display.setPixel(x, y);
+            this.display.setPixel(new Point(x, y));
           }
         }
       }
@@ -311,7 +335,7 @@ export default class TCanvas {
   }
 
   printString(str, x, y) {
-    this.display.setCharacter(str, x, y);
+    this.display.setCharacter(str, new Point(x, y));
   }
 
   update() {
