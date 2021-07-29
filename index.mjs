@@ -1,13 +1,52 @@
 import ansi from 'ansi';
+import style from 'ansi-styles';
 
+
+class Color {
+  constructor(color = 'close') {
+    this.palette = new Map(
+      Object.entries(style.color)
+        .filter(e => typeof e[1] !== 'function')
+        .map(e => ([e[0], e[1].open ?? e[1]]))
+    );
+
+    this.code = '';
+    this.setColor(color);
+  }
+
+  setColor(color) {
+    if (this.palette.has(color)) {
+      this.code = this.palette.get(color);
+    } else if (color[0] === '#') {
+      this.code = styles.color.ansi16m(...styles.hexToRgb(color));
+    } else if(color.indexOf('rgb(') === 0) {
+      const {r, g, b} = color.match(/rgb\(?<r>([0-9]+),(?<g>[0-9]+),(?<b>[0-9]+)\)/).groups;
+      this.code = styles.color.ansi16m(r, g, b);
+    } else {
+      this.code = this.palette.get('close');
+    }
+  }
+
+  equals(other) {
+    return this.code === other.code;
+  }
+}
 class TextCell {
   constructor() {
     this.character = '\u2800';
     this.beforeCharacter = undefined;
+
+
+    this.clearColor = this.color = new Color();
+    this.beforeColor = undefined;
   }
 
   setCharacter(char) {
     this.character = char;
+  }
+
+  setColor(color) {
+    this.color = color;
   }
 
   setPixelsFromCode(code) {
@@ -17,14 +56,20 @@ class TextCell {
 
   update() {
     this.beforeCharacter = this.character;
+    this.beforeColor = this.color;
   }
 
   clear() {
     this.setCharacter('\u2800');
+    this.setColor(this.clearColor);
   }
 
   get isChanged() {
-    return this.beforeCharacter !== this.character;
+    return this.beforeCharacter !== this.character || !this.beforeColor.equals(this.color);
+  }
+
+  get output() {
+    return `${this.color.code}${this.character}`;
   }
 }
 
@@ -138,22 +183,26 @@ class Display {
     this.bitMap.set(`${cx}, ${cy}`, code | this.codeTable[py][px]);
   }
 
-  updatePixels() {
+  updatePixels(color) {
+
+    const colorObj = new Color(color);
     this.bitMap.forEach((code, pos) => {
       const [cx, cy] = pos.split(',').map((e) => parseInt(e));
       const target = this.textCells[cy]?.[cx];
       if (target === undefined) return;
       target.setPixelsFromCode(code);
+      target.setColor(colorObj);
     });
     this.bitMap = new Map();
   }
 
-  setCharacter (str, point) {
+  setCharacter (str, point, color) {
     const line = this.textCells[Math.floor(point.y / 4)];
     for (let i = 0; i < str.length; i++) {
       const target = line?.[Math.floor(point.x / 2) + i];
       if (target === undefined) return;
       target.setCharacter(str[i]);
+      target.setColor(new Color(color));
     }
   }
 
@@ -173,12 +222,12 @@ class Display {
         this.cursor.goto(xStart + 1, y + 1).write(
           line
             .slice(xStart, xEnd)
-            .map(({ beforeCharacter }) => beforeCharacter)
+            .map(({ output }) => output)
             .join('')
         );
       }
     });
-    this.cursor.goto(this.w, this.h);
+    this.cursor.goto(this.w, this.h).write(new Color('reset').code);
   }
 }
 
@@ -196,6 +245,8 @@ export default class TCanvas {
     this.cw = cw;
     this.display = new Display(cw, ch);
     this.paths = [];
+
+    this.strokeStyle = this.fillStyle = 'reset';
   }
 
   moveTo(x, y) {
@@ -212,7 +263,7 @@ export default class TCanvas {
         this.display.setPixel(new Point(x + xi, y + yi));
       }
     }
-    this.display.updatePixels();
+    this.display.updatePixels(this.fillStyle);
   }
 
   strokeRect(x, y, w, h) {
@@ -228,7 +279,7 @@ export default class TCanvas {
       this.display.setPixel(new Point(x + w - 1, yp));
     }
 
-    this.display.updatePixels();
+    this.display.updatePixels(this.strokeStyle);
   }
 
   arc(x, y, radius, startAngle, endAngle, anticlockwise = false) {
@@ -277,7 +328,7 @@ export default class TCanvas {
         });
       })
     );
-    this.display.updatePixels();
+    this.display.updatePixels(this.strokeStyle);
     this.paths = [];
   }
 
@@ -325,7 +376,7 @@ export default class TCanvas {
         }
       }
 
-      this.display.updatePixels();
+      this.display.updatePixels(this.fillStyle);
     });
     this.paths = [];
   }
@@ -335,7 +386,7 @@ export default class TCanvas {
   }
 
   printString(str, x, y) {
-    this.display.setCharacter(str, new Point(x, y));
+    this.display.setCharacter(str, new Point(x, y), this.fillStyle);
   }
 
   update() {
