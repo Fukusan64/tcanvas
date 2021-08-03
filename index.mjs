@@ -3,27 +3,28 @@ import style from 'ansi-styles';
 
 
 class Color {
+  static palette = new Map(
+    Object.entries(style.color)
+      .filter(e => typeof e[1] !== 'function')
+      .map(e => ([e[0], e[1].open ?? e[1]]))
+  );
+
   constructor(color = 'close') {
-    this.palette = new Map(
-      Object.entries(style.color)
-        .filter(e => typeof e[1] !== 'function')
-        .map(e => ([e[0], e[1].open ?? e[1]]))
-    );
 
     this.code = '';
     this.setColor(color);
   }
 
   setColor(color) {
-    if (this.palette.has(color)) {
-      this.code = this.palette.get(color);
+    if (Color.palette.has(color)) {
+      this.code = Color.palette.get(color);
     } else if (color[0] === '#') {
       this.code = styles.color.ansi16m(...styles.hexToRgb(color));
     } else if(color.indexOf('rgb(') === 0) {
       const {r, g, b} = color.match(/rgb\(?<r>([0-9]+),(?<g>[0-9]+),(?<b>[0-9]+)\)/).groups;
       this.code = styles.color.ansi16m(r, g, b);
     } else {
-      this.code = this.palette.get('close');
+      this.code = Color.palette.get('close');
     }
   }
 
@@ -75,11 +76,12 @@ class TextCell {
 
 class Point {
   constructor(x, y) {
-    Object.assign(this, { x, y });
+    this.x = x;
+    this.y = y;
   }
 
   conversion(func) {
-    return new Point(...func([...this]));
+    return new Point(...func([this.x, this.y]));
   }
 
   equals(other) {
@@ -94,7 +96,8 @@ class Point {
 
 class Line {
   constructor(from = new Point(0, 0), to = new Point(0, 0)) {
-    Object.assign(this, { from, to });
+    this.from = from;
+    this.to = to;
   }
 
   getPoints() {
@@ -227,7 +230,7 @@ class Display {
         );
       }
     });
-    this.cursor.goto(this.w, this.h).write(new Color('reset').code);
+    this.cursor.goto(this.w, this.h).write(Color.palette.get('close'));
   }
 }
 
@@ -246,7 +249,7 @@ export default class TCanvas {
     this.display = new Display(cw, ch);
     this.paths = [];
 
-    this.strokeStyle = this.fillStyle = 'reset';
+    this.strokeStyle = this.fillStyle = 'close';
   }
 
   moveTo(x, y) {
@@ -340,7 +343,7 @@ export default class TCanvas {
       const yPoint = lines.map(({ from }) => from.y);
 
       // 輪郭も塗ってあげる
-      lines.map((line) =>
+      lines.forEach((line) =>
         line.getPoints().forEach((point) => {
           this.display.setPixel(point);
         })
@@ -357,7 +360,7 @@ export default class TCanvas {
       for (let x = minX; x <= maxX; x++) {
         for (let y = minY; y <= maxY; y++) {
           let count = 0;
-          lines.map((line) => {
+          lines.forEach((line) => {
             if (line.from.y <= y && line.to.y > y) {
               const t = (y - line.from.y) / (line.to.y - line.from.y);
               if (x < line.from.x + t * (line.to.x - line.from.x)) {
