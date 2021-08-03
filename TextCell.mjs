@@ -33,7 +33,10 @@ export default class TextCell {
   }
 
   get isChanged() {
-    return this.beforeCharacter !== this.character || !this.beforeColor.equals(this.color);
+    return (
+      this.beforeCharacter !== this.character ||
+      !this.beforeColor.equals(this.color)
+    );
   }
 
   get output() {
