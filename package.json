@@ -1,15 +1,30 @@
 {
   "name": "tcanvas",
   "version": "1.0.0",
-  "description": "",
+  "description": "Canvas API to draw on the terminal",
   "main": "index.mjs",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "author": "Fukusan",
   "license": "ISC",
   "dependencies": {
     "ansi": "^0.3.1",
     "ansi-styles": "^6.1.0"
-  }
+  },
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fukusan64/tcanvas.git"
+  },
+  "keywords": [
+    "terminal",
+    "Canvas",
+    "API",
+    "ansi"
+  ],
+  "bugs": {
+    "url": "https://github.com/Fukusan64/tcanvas/issues"
+  },
+  "homepage": "https://github.com/Fukusan64/tcanvas#readme"
 }
