@@ -33,8 +33,8 @@ export default class Display {
   setPixel(point) {
     const cx = Math.floor(point.x / 2);
     const cy = Math.floor(point.y / 4);
-    const px = point.x < 0 ? (point.x % 2) + 2 : point.x % 2;
-    const py = point.y < 0 ? (point.y % 4) + 4 : point.y % 4;
+    const px = point.x < 0 && point.x % 2 !== 0 ? (point.x % 2) + 2 : point.x % 2;
+    const py = point.y < 0 && point.y % 4 !== 0 ? (point.y % 4) + 4 : point.y % 4;
     const code = this.bitMap.get(`${cx}, ${cy}`) ?? 0;
     this.bitMap.set(`${cx}, ${cy}`, code | this.codeTable[py][px]);
   }
